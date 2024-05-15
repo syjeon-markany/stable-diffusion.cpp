@@ -1459,12 +1459,40 @@ public:
         return result;
     }
 
+    ggml_tensor* compute_first_stage_gpu_output(ggml_context* work_ctx, ggml_tensor* x, bool decode) {
+        int64_t W           = x->ne[0];
+        int64_t H           = x->ne[1];
+
+        // TODO: result는 gpu 데이터 할당
+        ggml_tensor* result = NULL;
+
+        int64_t t0 = ggml_time_ms();
+        ggml_tensor_scale(x, 1.0f / scale_factor);
+
+        first_stage_model->compute_gpu_output(n_threads, x, decode, &result);
+        first_stage_model->free_compute_buffer();
+
+        // TODO: cuda구현 필요
+        ggml_tensor_scale_output(result);
+
+        int64_t t1 = ggml_time_ms();
+        LOG_DEBUG("computing vae [mode: %s] graph completed, taking %.2fs", decode ? "DECODE" : "ENCODE", (t1 - t0) * 1.0f / 1000);
+            
+        // TODO: cuda구현 필요
+        ggml_tensor_clamp(result, 0.0f, 1.0f);
+        return result;
+    }
+
     ggml_tensor* encode_first_stage(ggml_context* work_ctx, ggml_tensor* x) {
         return compute_first_stage(work_ctx, x, false);
     }
 
     ggml_tensor* decode_first_stage(ggml_context* work_ctx, ggml_tensor* x) {
         return compute_first_stage(work_ctx, x, true);
+    }
+
+    ggml_tensor* decode_first_stage_gpu_output(ggml_context* work_ctx, ggml_tensor* x) {
+        return compute_first_stage_gpu_output(work_ctx, x, true);
     }
 };
 
@@ -1775,7 +1803,10 @@ sd_image_t* generate_image(sd_ctx_t* sd_ctx,
     std::vector<struct ggml_tensor*> decoded_images;  // collect decoded images
     for (size_t i = 0; i < final_latents.size(); i++) {
         t1                      = ggml_time_ms();
-        struct ggml_tensor* img = sd_ctx->sd->decode_first_stage(work_ctx, final_latents[i] /* x_0 */);
+
+        // img의 data는 gpu 데이터를 가지고 있음
+        struct ggml_tensor* img = sd_ctx->sd->decode_first_stage_gpu_output(work_ctx, final_latents[i] /* x_0 */);
+
         // print_ggml_tensor(img);
         if (img != NULL) {
             decoded_images.push_back(img);

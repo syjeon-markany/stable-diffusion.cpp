@@ -952,17 +952,13 @@ public:
 #ifdef GGML_PERF
         ggml_graph_print(gf);
 #endif
-        // TODO: 만약 output이 NULL이 아니고, output가 device memory일 경우 ggml_backend_tensor_copy_async를 호출하여 result를 output->data로 복사
+
         if (output != NULL) {
             auto result = gf->nodes[gf->n_nodes - 1];
             if (*output == NULL && output_ctx != NULL) {
                 *output = ggml_dup_tensor(output_ctx, result);
             }
-            // TODO: ggml_backend_tensor_copy_async 결과 확인 필요
-            if (*output != NULL && (*output)->backend == GGML_BACKEND_TYPE_GPU) {
-                ggml_backend_tensor_copy_async(backend, result, *output);
-            }
-            else {
+            if (*output != NULL) {
                 ggml_backend_tensor_get_and_sync(backend, result, (*output)->data, 0, ggml_nbytes(*output));
             }
         }
@@ -971,6 +967,36 @@ public:
             free_compute_buffer();
         }
     }
+
+    void compute_gpu_output(get_graph_cb_t get_graph,
+                 int n_threads,
+                 bool free_compute_buffer_immediately = true,
+                 struct ggml_tensor** output          = NULL,
+                 struct ggml_context* output_ctx      = NULL) {
+        alloc_compute_buffer(get_graph);
+        reset_compute_ctx();
+        struct ggml_cgraph* gf = get_graph();
+        GGML_ASSERT(ggml_gallocr_alloc_graph(compute_allocr, gf));
+        cpy_data_to_backend_tensor();
+        if (ggml_backend_is_cpu(backend)) {
+            ggml_backend_cpu_set_n_threads(backend, n_threads);
+        }
+
+        ggml_backend_graph_compute(backend, gf);
+
+        // TODO: 만약 output이 NULL이 아니고, output가 device memory일 경우 ggml_backend_tensor_copy_async를 호출하여 result를 output->data로 복사
+        if (output != NULL) {
+            auto result = gf->nodes[gf->n_nodes - 1];
+
+            // TODO: ggml_backend_tensor_copy_async 결과 확인 필요
+            ggml_backend_tensor_copy_async(backend, result, *output);
+        }
+
+        if (free_compute_buffer_immediately) {
+            free_compute_buffer();
+        }
+    }
+
 };
 
 class GGMLBlock {

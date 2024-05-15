@@ -555,6 +555,20 @@ struct AutoEncoderKL : public GGMLModule {
         GGMLModule::compute(get_graph, n_threads, true, output, output_ctx);
     }
 
+
+    void compute_gpu_output(const int n_threads,
+                 struct ggml_tensor* z,
+                 bool decode_graph,
+                 struct ggml_tensor** output,
+                 struct ggml_context* output_ctx = NULL) {
+        auto get_graph = [&]() -> struct ggml_cgraph* {
+            return build_graph(z, decode_graph);
+        };
+        // ggml_set_f32(z, 0.5f);
+        // print_ggml_tensor(z);
+        GGMLModule::compute_gpu_output(get_graph, n_threads, true, output, output_ctx);
+    }
+
     void test() {
         struct ggml_init_params params;
         params.mem_size   = static_cast<size_t>(10 * 1024 * 1024);  // 10 MB
