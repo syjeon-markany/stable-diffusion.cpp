@@ -24,6 +24,11 @@
 #include "ggml/ggml-backend.h"
 #include "ggml/ggml.h"
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include <cuda_device_runtime_api.h>
+
+
 #ifdef SD_USE_CUBLAS
 #include "ggml-cuda.h"
 #endif
@@ -984,12 +989,14 @@ public:
 
         ggml_backend_graph_compute(backend, gf);
 
-        // TODO: 만약 output이 NULL이 아니고, output가 device memory일 경우 ggml_backend_tensor_copy_async를 호출하여 result를 output->data로 복사
         if (output != NULL) {
             auto result = gf->nodes[gf->n_nodes - 1];
 
-            // TODO: ggml_backend_tensor_copy_async 결과 확인 필요
-            ggml_backend_tensor_copy_async(backend, result, *output);
+            cudaDeviceSynchronize();
+
+            int size = 512*512*3;
+            cudaMemcpy((float*)(*output)->data, (float*)result->data, size*sizeof(float), cudaMemcpyDeviceToDevice);
+            cudaDeviceSynchronize();
         }
 
         if (free_compute_buffer_immediately) {

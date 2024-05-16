@@ -16,6 +16,10 @@
 #include "unet.hpp"
 #include "vae.hpp"
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include <cuda_device_runtime_api.h>
+
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_STATIC
 #include "stb_image.h"
@@ -1463,8 +1467,45 @@ public:
         int64_t W           = x->ne[0];
         int64_t H           = x->ne[1];
 
-        // TODO: result는 gpu 데이터 할당
-        ggml_tensor* result = NULL;
+        int64_t W_decode = W * 8;
+        int64_t H_decode = H * 8;
+        int64_t C_decode = 3;
+        int64_t result_size = W_decode * H_decode * C_decode;
+
+        ggml_tensor* result = (ggml_tensor*)malloc(sizeof(ggml_tensor)); // result 초기화
+        if (result == NULL) {
+            std::cerr << "Memory allocation failed for compute_first_stage_gpu_output result" << std::endl;
+            return -1; // 메모리 할당 실패 시 오류 반환
+        }
+        // type
+        // result->type = GGML_TYPE_F32;
+
+        // // ne
+        result->ne[0] = W_decode;
+        result->ne[1] = H_decode;
+        result->ne[2] = C_decode;
+        result->ne[3] = 1;
+
+        // nb
+        // result->nb[0] = ggml_type_size(result->type);
+        // result->nb[1] = result->nb[0] * (result->ne[0] / ggml_blck_size(result->type));
+        // for (int i = 2; i < GGML_MAX_DIMS; i++) {
+        //     result->nb[i] = result->nb[i - 1] * result->ne[i - 1];
+        // }
+
+        // // backend
+        // result->backend = GGML_BACKEND_TYPE_GPU;
+
+        
+        // data
+        void* data = NULL;
+        cudaError_t err = cudaMalloc(&data, result_size * sizeof(float));
+        if (err != cudaSuccess) {
+            std::cerr << "CUDA memory allocation failed: " << cudaGetErrorString(err) << std::endl;
+            free(result); // 메모리 할당 실패 시 result 해제
+            return NULL;
+        }
+        result->data = data;
 
         int64_t t0 = ggml_time_ms();
         ggml_tensor_scale(x, 1.0f / scale_factor);
@@ -1472,14 +1513,12 @@ public:
         first_stage_model->compute_gpu_output(n_threads, x, decode, &result);
         first_stage_model->free_compute_buffer();
 
-        // TODO: cuda구현 필요
-        ggml_tensor_scale_output(result);
+        ggml_tensor_scale_output_gpu(result);
 
         int64_t t1 = ggml_time_ms();
         LOG_DEBUG("computing vae [mode: %s] graph completed, taking %.2fs", decode ? "DECODE" : "ENCODE", (t1 - t0) * 1.0f / 1000);
             
-        // TODO: cuda구현 필요
-        ggml_tensor_clamp(result, 0.0f, 1.0f);
+        ggml_tensor_clamp_gpu(result, 0.0f, 1.0f);
         return result;
     }
 
@@ -1805,6 +1844,7 @@ sd_image_t* generate_image(sd_ctx_t* sd_ctx,
         t1                      = ggml_time_ms();
 
         // img의 data는 gpu 데이터를 가지고 있음
+        // struct ggml_tensor* img = sd_ctx->sd->decode_first_stage(work_ctx, final_latents[i] /* x_0 */);
         struct ggml_tensor* img = sd_ctx->sd->decode_first_stage_gpu_output(work_ctx, final_latents[i] /* x_0 */);
 
         // print_ggml_tensor(img);
@@ -1830,7 +1870,7 @@ sd_image_t* generate_image(sd_ctx_t* sd_ctx,
         result_images[i].width   = width;
         result_images[i].height  = height;
         result_images[i].channel = 3;
-        result_images[i].data    = sd_tensor_to_image(decoded_images[i]);
+        result_images[i].data    = sd_tensor_to_image_gpu(decoded_images[i]);
     }
     ggml_free(work_ctx);
 
