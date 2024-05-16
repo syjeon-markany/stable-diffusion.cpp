@@ -1870,6 +1870,7 @@ sd_image_t* generate_image(sd_ctx_t* sd_ctx,
         result_images[i].width   = width;
         result_images[i].height  = height;
         result_images[i].channel = 3;
+        // result_images[i].data    = sd_tensor_to_image(decoded_images[i]);
         result_images[i].data    = sd_tensor_to_image_gpu(decoded_images[i]);
     }
     ggml_free(work_ctx);
