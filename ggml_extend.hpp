@@ -994,8 +994,21 @@ public:
 
             cudaDeviceSynchronize();
 
-            int size = 512*512*3;
-            cudaMemcpy((float*)(*output)->data, (float*)result->data, size*sizeof(float), cudaMemcpyDeviceToDevice);
+            int output_w = (*output)->ne[0];
+            int output_h = (*output)->ne[1];
+            int output_c = (*output)->ne[2];
+            int output_size = output_w * output_h * output_c;
+
+            int result_w = result->ne[0];
+            int result_h = result->ne[1];
+            int result_c = result->ne[2];
+            int result_size = result_w * result_h * result_c;
+
+            if (output_size != result_size) {
+                LOG_ERROR("output size mismatch in compute_gpu_output: %d != %d", output_size, result_size);
+            }
+
+            cudaMemcpy((float*)(*output)->data, (float*)result->data, output_size*sizeof(float), cudaMemcpyDeviceToDevice);
             cudaDeviceSynchronize();
         }
 
